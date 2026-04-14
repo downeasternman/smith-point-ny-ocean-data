@@ -14,12 +14,14 @@ function ndbcPath(path: string): string {
 
 function parseNdbcRealtime(text: string): { waves: Point[]; waterTemp: Point[] } {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
-  const rows = lines.filter((line) => !line.startsWith("#"));
-  if (rows.length === 0) return { waves: [], waterTemp: [] };
+  if (lines.length === 0) return { waves: [], waterTemp: [] };
 
-  const first = rows[0].trim().split(/\s+/);
-  const headers = first.includes("YY") ? first : rows[1]?.trim().split(/\s+/) ?? [];
-  const dataStart = first.includes("YY") ? 1 : 2;
+  const headerLine = lines.find((line) => line.includes("YY") && line.includes("MM") && line.includes("DD"));
+  if (!headerLine) return { waves: [], waterTemp: [] };
+
+  const headers = headerLine.replace(/^#\s*/, "").trim().split(/\s+/);
+  const headerIndex = lines.indexOf(headerLine);
+  const rows = lines.slice(headerIndex + 1).filter((line) => !line.startsWith("#"));
 
   const yyIdx = headers.indexOf("YY");
   const mmIdx = headers.indexOf("MM");
@@ -28,11 +30,14 @@ function parseNdbcRealtime(text: string): { waves: Point[]; waterTemp: Point[] }
   const minIdx = headers.indexOf("mm");
   const wvhtIdx = headers.indexOf("WVHT");
   const wtmpIdx = headers.indexOf("WTMP");
+  if ([yyIdx, mmIdx, ddIdx, hhIdx, minIdx, wvhtIdx, wtmpIdx].some((idx) => idx < 0)) {
+    return { waves: [], waterTemp: [] };
+  }
 
   const waves: Point[] = [];
   const waterTemp: Point[] = [];
 
-  for (let i = dataStart; i < rows.length; i++) {
+  for (let i = 0; i < rows.length; i++) {
     const cols = rows[i].trim().split(/\s+/);
     if (cols.length < headers.length) continue;
 
