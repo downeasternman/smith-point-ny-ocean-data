@@ -1,78 +1,112 @@
 import "./styles.css";
-import locationConfig from "./locationConfig";
-import type { ChartSeries, MetricKey } from "./types";
+import { decimate, renderMetricChart } from "./charts";
+import { fetchOcean, type DataRequest, type PresetPeriod } from "./noaa";
+import type { Chart } from "chart.js";
 
-const metricLabels: Record<MetricKey, { label: string; unit: string }> = {
-  temperature: { label: "Water Temperature", unit: "F" },
-  lakeLevel: { label: "Lake Level", unit: "ft" },
-  inflow: { label: "Inflow", unit: "cfs" },
-  outflow: { label: "Outflow", unit: "cfs" },
-  waveHeight: { label: "Wave Height", unit: "ft" }
+const app = document.querySelector<HTMLDivElement>("#app");
+if (!app) throw new Error("#app missing");
+
+app.innerHTML = `
+  <header class="app-header">
+    <h1>Smith Point, NY</h1>
+    <p class="tagline">NOAA wave height & water temperature</p>
+  </header>
+  <section class="controls" aria-label="Time range">
+    <div class="presets">
+      <span class="label">Range</span>
+      <button type="button" class="chip" data-period="P1D">1 day</button>
+      <button type="button" class="chip chip-active" data-period="P7D">7 days</button>
+      <button type="button" class="chip" data-period="P30D">30 days</button>
+    </div>
+    <div class="custom-range">
+      <span class="label">Custom</span>
+      <input type="date" id="startDate" aria-label="Start date" />
+      <span class="dash">–</span>
+      <input type="date" id="endDate" aria-label="End date" />
+      <button type="button" class="btn-apply" id="applyCustom">Apply</button>
+    </div>
+    <div class="refresh-row">
+      <button type="button" class="btn-refresh" id="refreshBtn">Refresh now</button>
+      <span class="refresh-info" id="refreshInfo"></span>
+    </div>
+    <p class="range-summary" id="rangeSummary"></p>
+    <p class="form-error" id="formError" role="alert" hidden></p>
+  </section>
+  <main class="cards">
+    <article class="card">
+      <header><h2>Water temperature</h2><p class="meta" id="metaT"></p></header>
+      <div class="chart-wrap"><div class="loading" id="loadT">Loading…</div><canvas id="chartT" height="220"></canvas></div>
+      <p class="footnote" id="footT"></p>
+    </article>
+    <article class="card">
+      <header><h2>Wave height</h2><p class="meta" id="metaW"></p></header>
+      <div class="chart-wrap"><div class="loading" id="loadW">Loading…</div><canvas id="chartW" height="220"></canvas></div>
+      <p class="footnote" id="footW"></p>
+    </article>
+  </main>
+  <footer class="app-footer"><p>Data: NOAA NDBC station 44025. Temperature chart is always shown first.</p></footer>
+`;
+
+let req: DataRequest = { kind: "preset", period: "P7D" };
+let chartT: Chart<"line"> | null = null;
+let chartW: Chart<"line"> | null = null;
+const el = {
+  rangeSummary: document.getElementById("rangeSummary")!,
+  formError: document.getElementById("formError")!,
+  chartT: document.getElementById("chartT") as HTMLCanvasElement,
+  chartW: document.getElementById("chartW") as HTMLCanvasElement,
+  loadT: document.getElementById("loadT")!,
+  loadW: document.getElementById("loadW")!,
+  metaT: document.getElementById("metaT")!,
+  metaW: document.getElementById("metaW")!,
+  footT: document.getElementById("footT")!,
+  footW: document.getElementById("footW")!,
+  startDate: document.getElementById("startDate") as HTMLInputElement,
+  endDate: document.getElementById("endDate") as HTMLInputElement
 };
-
-function makeDemoSeries(metric: MetricKey): ChartSeries {
-  const now = Date.now();
-  const points = Array.from({ length: 24 }).map((_, idx) => {
-    const ts = now - (23 - idx) * 60 * 60 * 1000;
-    const base = metric === "temperature" ? 58 : metric === "waveHeight" ? 2.5 : 1200;
-    const wave = Math.sin(idx / 3) * (metric === "temperature" ? 4 : 0.8);
-    return { ts, value: Number((base + wave).toFixed(2)) };
-  });
-
-  return {
-    metric,
-    label: metricLabels[metric].label,
-    unit: metricLabels[metric].unit,
-    points
-  };
-}
-
-function drawSparkline(points: Array<{ value: number }>): string {
-  const values = points.map((p) => p.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(max - min, 0.01);
-  const width = 100;
-  const height = 36;
-  const coords = points.map((p, i) => {
-    const x = (i / (points.length - 1)) * width;
-    const y = height - ((p.value - min) / range) * height;
-    return `${x},${y}`;
-  });
-  return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><polyline points="${coords.join(
-    " "
-  )}" /></svg>`;
-}
-
-function renderApp(): void {
-  const root = document.querySelector<HTMLDivElement>("#app");
-  if (!root) return;
-
-  const chartOrder = locationConfig.chartOrder;
-  const first = chartOrder[0];
-  if (first !== "temperature") {
-    throw new Error("Temperature must be first chart.");
+function setBusy(busy: boolean): void { el.loadT.hidden = !busy; el.loadW.hidden = !busy; }
+function summarizeRange(): string {
+  if (req.kind === "preset") {
+    const labels: Record<PresetPeriod, string> = { P1D: "Last 24 hours", P7D: "Last 7 days", P30D: "Last 30 days" };
+    el.rangeSummary.textContent = labels[req.period];
+  } else {
+    el.rangeSummary.textContent = `${req.start.toLocaleDateString()} — ${req.end.toLocaleDateString()}`;
   }
-
-  const cards = chartOrder
-    .map((metric) => {
-      const series = makeDemoSeries(metric);
-      const latest = series.points[series.points.length - 1].value;
-      return `<article class="card">
-        <h2>${series.label}</h2>
-        <p class="value">${latest} ${series.unit}</p>
-        <div class="chart">${drawSparkline(series.points)}</div>
-      </article>`;
-    })
-    .join("");
-
-  root.innerHTML = `<main>
-    <header>
-      <h1>${locationConfig.displayName}</h1>
-      <p>Live-ready layout. Wire final NOAA/USGS IDs in location config.</p>
-    </header>
-    <section class="grid">${cards}</section>
-  </main>`;
+  return el.rangeSummary.textContent || "";
 }
-
-renderApp();
+async function load(): Promise<void> {
+  el.formError.hidden = true;
+  chartT?.destroy(); chartW?.destroy(); setBusy(true);
+  const summary = summarizeRange();
+  el.metaT.textContent = `NOAA 44025 · ${summary}`;
+  el.metaW.textContent = `NOAA 44025 · ${summary}`;
+  try {
+    const data = await fetchOcean(req);
+    const t = decimate(data.waterTemp); const w = decimate(data.waves);
+    chartT = renderMetricChart(el.chartT, t, "Water temperature", "rgb(14, 116, 144)", "°F");
+    chartW = renderMetricChart(el.chartW, w, "Wave height", "rgb(37, 99, 235)", "ft");
+    el.footT.textContent = t.length ? `Points: ${t.length}` : "No NOAA temperature data returned.";
+    el.footW.textContent = w.length ? `Points: ${w.length}` : "No NOAA wave data returned.";
+  } catch (e) {
+    el.formError.textContent = e instanceof Error ? e.message : "Request failed";
+    el.formError.hidden = false;
+  } finally { setBusy(false); }
+}
+document.querySelectorAll(".chip").forEach((btn) => btn.addEventListener("click", () => {
+  const period = btn.getAttribute("data-period") as PresetPeriod;
+  req = { kind: "preset", period };
+  document.querySelectorAll(".chip").forEach((b) => b.classList.toggle("chip-active", b === btn));
+  void load();
+}));
+document.getElementById("applyCustom")?.addEventListener("click", () => {
+  req = { kind: "range", start: new Date(el.startDate.value + "T00:00:00"), end: new Date(el.endDate.value + "T23:59:59") };
+  document.querySelectorAll(".chip").forEach((b) => b.classList.remove("chip-active"));
+  void load();
+});
+document.getElementById("refreshBtn")?.addEventListener("click", () => void load());
+const today = new Date(); const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+const pad = (n: number) => String(n).padStart(2, "0");
+el.endDate.value = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+el.startDate.value = `${weekAgo.getFullYear()}-${pad(weekAgo.getMonth() + 1)}-${pad(weekAgo.getDate())}`;
+document.getElementById("refreshInfo")!.textContent = "NOAA live data.";
+void load();

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/noaa-ndbc/(.*)",
+      "destination": "https://www.ndbc.noaa.gov/$1"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/noaa-ndbc/(.*)",
+      "destination": "https://www.ndbc.noaa.gov/$1"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

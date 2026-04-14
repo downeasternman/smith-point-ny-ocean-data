@@ -2,6 +2,12 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   server: {
-    port: 5173
+    proxy: {
+      "/noaa-ndbc": {
+        target: "https://www.ndbc.noaa.gov",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/noaa-ndbc/, "")
+      }
+    }
   }
 });
