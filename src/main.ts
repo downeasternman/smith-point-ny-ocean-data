@@ -44,7 +44,7 @@ app.innerHTML = `
       <p class="footnote" id="footW"></p>
     </article>
   </main>
-  <footer class="app-footer"><p>Data: NOAA NDBC station 44025. Temperature chart is always shown first.</p></footer>
+  <footer class="app-footer"><p>Data: NOAA NDBC station 44025. Temperature chart is always shown first.</p><p class="app-footer-sponsor"><a href="https://github.com/sponsors/downeasternman" class="sponsor-link" target="_blank" rel="noreferrer">Sponsor</a></p></footer>
 `;
 
 let req: DataRequest = { kind: "preset", period: "P7D" };
